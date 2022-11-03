@@ -1,0 +1,322 @@
+ec2-user:~/environment/poc1 $ cat provider.tf 
+provider "aws" {
+  #region = "us-east-1"
+  region = "ap-southeast-1b"
+}
+
+
+ec2-user:~/environment/poc1 $ 
+ec2-user:~/environment/poc1 $ cat subnet.tf 
+## Creating Public Subnet under above VPC
+
+resource "aws_subnet" "shyam_subnet_public_1a" {
+  vpc_id                  = aws_vpc.shyamvpc.id
+  cidr_block              = "192.168.0.0/18"
+  map_public_ip_on_launch = true
+  availability_zone       = "ap-southeast-1a"
+
+  tags = {
+    Name = "shyam-public_1_subnet_ap-southeast-1a"
+  }
+}
+
+## Public Subnet-2
+resource "aws_subnet" "shyam_subnet_public_1b" {
+  vpc_id                  = aws_vpc.shyamvpc.id
+  cidr_block              = "192.168.64.0/18"
+  map_public_ip_on_launch = true
+  availability_zone       = "ap-southeast-1b"
+
+  tags = {
+    Name = "shyam-public_2_subnet_ap-southeast-1b"
+  }
+}
+
+## Private Subnet-1
+resource "aws_subnet" "shyam_subnet_private_1a" {
+  vpc_id                  = aws_vpc.shyamvpc.id
+  cidr_block              = "192.168.128.0/18"
+  map_public_ip_on_launch = false
+  availability_zone       = "ap-southeast-1a"
+
+  tags = {
+    Name = "shyam-private_1_subnet_us_east_1a"
+  }
+}
+
+
+## Private Subnet-2
+resource "aws_subnet" "shyam_subnet_private_1b" {
+  vpc_id                  = aws_vpc.shyamvpc.id
+  cidr_block              = "192.168.192.0/18"
+  map_public_ip_on_launch = false
+  availability_zone       = "ap-southeast-1b"
+
+  tags = {
+    Name = "shyam-private_2_subnet_ap-southeast-1b"
+  }
+}
+
+ec2-user:~/environment/poc1 $ 
+ec2-user:~/environment/poc1 $ cat nat_gateway.tf 
+## Elastic IP for NAR Gateway for ap-southeast-1a #
+resource "aws_eip" "nat_eip_1" {
+  vpc        = true
+  depends_on = [aws_internet_gateway.shyam_internet_gateway]
+  tags = {
+    Name = "NAT_Gateway_EIP_ap-southeast-1a"
+  }
+}
+
+
+## Elastic IP for NAR Gateway for ap-southeast-1a #
+resource "aws_eip" "nat_eip_2" {
+  vpc        = true
+  depends_on = [aws_internet_gateway.shyam_internet_gateway]
+  tags = {
+    Name = "NAT_Gateway_EIP_ap-southeast-1b"
+  }
+}
+
+
+
+## NAT Gateway for VPC ##
+resource "aws_nat_gateway" "NAT_gw_1" {
+  allocation_id = aws_eip.nat_eip_1.id
+  subnet_id     = aws_subnet.shyam_subnet_public_1a.id
+
+  tags = {
+    Name = "NAT_gw_1"
+  }
+
+  # To ensure proper ordering, it is recommended to add an explicit dependency
+  # on the Internet Gateway for the VPC.
+  #depends_on = [aws_internet_gateway.example]
+}
+
+## Nat gateway-2
+
+resource "aws_nat_gateway" "NAT_gw_2" {
+  allocation_id = aws_eip.nat_eip_2.id
+  subnet_id     = aws_subnet.shyam_subnet_private_1a.id
+
+  tags = {
+    Name = "NAT_gw_2"
+  }
+
+}
+
+ec2-user:~/environment/poc1 $ 
+ec2-user:~/environment/poc1 $ cat route_table
+cat: route_table: No such file or directory
+ec2-user:~/environment/poc1 $ cat route_table.tf 
+
+# Route table for Public Subnet ##
+
+resource "aws_route_table" "shyam_public_route_table" {
+  vpc_id = aws_vpc.shyamvpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.shyam_internet_gateway.id
+    nat_gateway_id = aws_nat_gateway.NAT_gw_1.id
+  }
+
+  tags = {
+    Name = "shyam_public_route_table"
+  }
+}
+
+
+
+# Route table for Private Subnet ##
+
+resource "aws_route_table" "shyam_private_route_table_1" {
+  vpc_id = aws_vpc.shyamvpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    #gateway_id = aws_internet_gateway.shyam_internet_gateway.id
+    nat_gateway_id = aws_nat_gateway.NAT_gw_2.id
+  }
+
+  tags = {
+    Name = "shyam_private_route_table_1"
+  }
+}
+
+# # Route table-2 for Private Subnet ##
+# resource "aws_route_table" "shyam_private_route_table_2" {
+#   vpc_id = aws_vpc.shyamvpc.id
+
+#   route {
+#     cidr_block = "0.0.0.0/0"
+#     #gateway_id = aws_internet_gateway.shyam_internet_gateway.id
+#     nat_gateway_id = aws_nat_gateway.gw_2.id
+#   }
+
+#     tags = {
+#     Name = "shyam_private_route_table_2"
+#   }
+# }
+
+ec2-user:~/environment/poc1 $ 
+ec2-user:~/environment/poc1 $ cat ec2.tf 
+## Generating Key
+
+# creating key on AWS
+
+resource "aws_key_pair" "shyam_aws_key1" {
+  key_name   = "shyam_aws_key1"
+  public_key = file("/home/ec2-user/.ssh/id_rsa.pub")
+}
+
+
+## Creating EC2 in Public Subnet
+
+resource "aws_instance" "public_instance_1" {
+  ami                         = "ami-026b57f3c383c2eec"
+  instance_type               = "t2.micro"
+  key_name                    = aws_key_pair.shyam_aws_key1.key_name
+  vpc_security_group_ids      = ["${aws_security_group.security_group1.id}"]
+  subnet_id                   = aws_subnet.shyam_subnet_public_1a.id
+  availability_zone           = "us-east-1a"
+  #count                       = 1
+  associate_public_ip_address = true
+  user_data                   = <<-EOF
+        #!/bin/bash
+        sudo yum install httpd -y
+        sudo systemctl start httpd
+        sudo systemctl enbale httpd
+        echo "<h1> Hello VF-Cloud World </h1>" > /var/www/html/index.html
+  EOF
+
+  tags = {
+    Name = "shyam_public_instance_1"
+    env  = "test"
+  }
+}
+
+## Creating EC2 in Private Subnet
+
+resource "aws_instance" "private_instance_1" {
+  ami                         = "ami-026b57f3c383c2eec"
+  instance_type               = "t2.micro"
+  key_name                    = aws_key_pair.shyam_aws_key1.key_name
+  vpc_security_group_ids      = ["${aws_security_group.security_group1.id}"]
+  subnet_id                   = aws_subnet.shyam_subnet_private_1a.id
+  availability_zone           = "us-east-1b"
+  count                       = 1
+  associate_public_ip_address = false
+  tags = {
+    Name = "shyam_private_instance_1"
+    env  = "test"
+  }
+}
+
+ec2-user:~/environment/poc1 $ 
+ec2-user:~/environment/poc1 $ cat internet_gateway.tf 
+## creating Internet Gateway ##
+resource "aws_internet_gateway" "shyam_internet_gateway" {
+  vpc_id = aws_vpc.shyamvpc.id
+
+  tags = {
+    Name = "shyam_internet_gateway"
+  }
+}
+
+ec2-user:~/environment/poc1 $ 
+ec2-user:~/environment/poc1 $ cat network.tf 
+## creating VPC
+resource "aws_vpc" "shyamvpc" {
+  cidr_block       = "192.168.0.0/16"
+  instance_tenancy = "default"
+
+  tags = {
+    Name = "shyam-vpc"
+  }
+}
+
+## creating security group ##
+resource "aws_security_group" "security_group1" {
+  name        = "terraform_ec2_private_sg"
+  description = "Allow limited inbound externale traffic"
+  vpc_id      = aws_vpc.shyamvpc.id
+
+  dynamic "ingress" {
+    #for_each = [22, 80, 443, 3306, 27017]
+    for_each = [22, 80, 8080, 443]
+    iterator = port
+    content {
+      description      = "TLS from VPC"
+      from_port        = port.value
+      to_port          = port.value
+      protocol         = "tcp"
+      cidr_blocks      = ["0.0.0.0/0"]
+      ipv6_cidr_blocks = ["::/0"]
+
+    }
+  }
+
+  egress {
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = ["0.0.0.0/0"]
+    ipv6_cidr_blocks = ["::/0"]
+  }
+
+
+  tags = {
+    Name = "shyam_private_sg"
+  }
+}
+
+ec2-user:~/environment/poc1 $ 
+ec2-user:~/environment/poc1 $ cat route_table_association.tf 
+### Association between Public Subnet and Public Route Table
+
+resource "aws_route_table_association" "public_1" {
+  subnet_id      = aws_subnet.shyam_subnet_public_1a.id
+  route_table_id = aws_route_table.shyam_public_route_table.id
+}
+
+resource "aws_route_table_association" "public_2" {
+    subnet_id      = aws_subnet.shyam_subnet_public_1b.id
+    route_table_id = aws_route_table.shyam_public_route_table.id
+}
+
+
+
+resource "aws_route_table_association" "private_1" {
+  subnet_id      = aws_subnet.shyam_subnet_private_1a.id
+  route_table_id = aws_route_table.shyam_private_route_table_1.id
+}
+
+
+resource "aws_route_table_association" "private_2" {
+    subnet_id      = aws_subnet.shyam_subnet_private_1b.id
+    route_table_id = aws_route_table.shyam_private_route_table_1.id
+}
+
+ec2-user:~/environment/poc1 $ 
+ec2-user:~/environment/poc1 $ 
+ec2-user:~/environment/poc1 $ cat ebs_vol.tf 
+# resource "aws_ebs_volume" "data_vol" {
+#   availability_zone = "ap-southeast-1"
+#   size              = 1
+#   tags = {
+#     Name = "data_vol"
+#   }
+# }
+
+# resource "aws_volume_attachment" "hello-terra-vol" {
+#   device_name = "/dev/sdh"
+#   volume_id   = aws_ebs_volume.data_vol.id
+#   instance_id = aws_instance.public_instance_1.id
+
+# }
+
+ec2-user:~/environment/poc1 $ 
+ec2-user:~/environment/poc1 $ 
+
